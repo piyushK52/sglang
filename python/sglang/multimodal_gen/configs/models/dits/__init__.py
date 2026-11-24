@@ -20,6 +20,7 @@ from sglang.multimodal_gen.configs.models.dits.minimax_h3 import MiniMaxH3DiTCon
 from sglang.multimodal_gen.configs.models.dits.mova_audio import MOVAAudioConfig
 from sglang.multimodal_gen.configs.models.dits.mova_video import MOVAVideoConfig
 from sglang.multimodal_gen.configs.models.dits.sana_video import SanaVideoConfig
+from sglang.multimodal_gen.configs.models.dits.scail2 import SCAIL2Config
 from sglang.multimodal_gen.configs.models.dits.stablediffusion3 import (
     StableDiffusion3TransformerConfig,
 )
@@ -49,5 +50,6 @@ __all__ = [
     "MOVAAudioConfig",
     "MOVAVideoConfig",
     "SanaVideoConfig",
+    "SCAIL2Config",
     "StableDiffusion3TransformerConfig",
 ]

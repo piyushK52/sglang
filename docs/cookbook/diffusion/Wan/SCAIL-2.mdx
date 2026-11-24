@@ -1,0 +1,127 @@
+---
+title: SCAIL-2
+tag: NEW
+description: Run SCAIL-2 character animation and replacement (reference image + driving video + colour masks) with SGLang Diffusion.
+metatags:
+    description: "Deploy SCAIL-2 14B motion transfer on Wan2.1-I2V-14B with SGLang Diffusion: building the model directory, the colour-mask contract, animation and replacement modes, long-video segments and the Lightx2v / DPO LoRAs."
+---
+
+## 1. Model capabilities
+
+[SCAIL-2](https://github.com/zai-org/SCAIL-2) makes the character in a **reference
+image** perform the motion of a **driving video**. It is built on Wan2.1-I2V-14B and
+runs in context: the reference, the video being generated and the driving video are
+one token sequence, with two extra patch embeddings (driving video, colour masks) and a
+shifted 3D RoPE. SGLang implements it natively as `SCAIL2Pipeline`.
+
+Two modes:
+
+| Mode | Result | Reference mask background | Driving mask background |
+| --- | --- | --- | --- |
+| Animation (`replace_mode: false`, default) | The character, in the reference image's scene, performs the driving motion. | white (keep) | black (drop) |
+| Replacement (`replace_mode: true`) | The character replaces the person in the driving video; its scene stays. | black | white |
+
+In both masks every character is painted one solid colour (white, red, green, blue,
+yellow, magenta or cyan); the same colour in the reference mask and in the driving
+mask links a character to the person whose motion it takes. A channel counts as on at
+225/255 or brighter. The driving mask is a video with the same frame count as the
+driving video. SCAIL-Pose in the official repository produces these masks.
+
+The driving video may be the real footage or a rendered pose video. Its audio is not
+carried over.
+
+## 2. Build the model directory
+
+SCAIL-2 publishes only its transformer weights, in the official Wan parameter names.
+The text encoder, CLIP image encoder and VAE are those of Wan2.1-I2V-14B. Assemble a
+loadable directory (components are symlinked, nothing is rewritten):
+
+```bash Command
+python -m sglang.multimodal_gen.tools.build_scail2_model \
+  --wan-i2v-path Wan-AI/Wan2.1-I2V-14B-480P-Diffusers \
+  --scail2-weights /path/to/wan2.1_14B_SCAIL_2_fp16.safetensors \
+  --output-path /models/SCAIL-2-14B-Diffusers
+```
+
+The weights are `diffusion_models/wan2.1_14B_SCAIL_2_fp16.safetensors` from
+[Comfy-Org/SCAIL-2](https://huggingface.co/Comfy-Org/SCAIL-2), or the official
+`SCAIL-2.safetensors`. The directory's `model_index.json` names `SCAIL2Pipeline`,
+which routes it at any path.
+
+## 3. Defaults
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `width`×`height` | `896`×`512` | Swapped when the reference image is portrait. Must be multiples of 32. Inputs are resized to cover and centre-cropped. |
+| `num_inference_steps` | `40` | UniPC, as in the reference. |
+| `guidance_scale` | `5.0` | `1.0` runs one branch per step. |
+| `sample_shift` | `3.0` | The pipeline config's `flow_shift`; per request. |
+| `negative_prompt` | `""` | |
+| `segment_len` / `segment_overlap` | `81` / `5` | Longer driving videos run in 81-frame segments; the last 5 decoded frames of a segment are re-encoded as clean history for the next. Frames after the last full segment are not generated. A video of at most 81 frames is cut to the largest `4k+1`. |
+| `fps` | `16` | Output frame rate. Driving frames are used one to one, not resampled. |
+
+SCAIL-2 is trained on long, descriptive prompts of the result video (appearance,
+clothing, action, surroundings). Short prompts run but describe less.
+
+## 4. Invocation
+
+### 4.1 Offline
+
+```yaml scail2_run.yaml
+prompt: "A man in a white shirt sits at a dinner table, gesturing as he talks ..."
+image_path: /path/to/ref.png
+reference_mask_path: /path/to/ref_mask.png
+video_path: /path/to/driving.mp4
+driving_mask_path: /path/to/driving_mask.mp4
+replace_mode: false
+seed: 42
+```
+
+```bash Command
+sglang generate \
+  --model-path /models/SCAIL-2-14B-Diffusers \
+  --config scail2_run.yaml \
+  --save-output --output-path outputs --output-file-name scail2.mp4
+```
+
+Optional extra references (other views of a character, or more characters) go in
+`additional_ref_image_paths` and `additional_ref_mask_paths`, one mask per image.
+
+### 4.2 HTTP
+
+```bash Command
+job_id=$(curl -sS -X POST http://127.0.0.1:30010/v1/videos \
+  --form-string "prompt=A man in a white shirt sits at a dinner table ..." \
+  --form-string "video_path=/path/to/driving.mp4" \
+  --form-string "reference_mask_path=/path/to/ref_mask.png" \
+  --form-string "driving_mask_path=/path/to/driving_mask.mp4" \
+  --form-string "size=896x512" \
+  --form "input_reference=@/path/to/ref.png;type=image/png" \
+  | python -c 'import json, sys; print(json.load(sys.stdin)["id"])')
+```
+
+Poll `/v1/videos/${job_id}` and download `/v1/videos/${job_id}/content` as for the
+other video models. Paths must be readable by the server process.
+
+## 5. LoRAs
+
+The reference supports the Lightx2v step-distill LoRA and the SCAIL-2 DPO LoRA (hands,
+lips, eyes) through `--lora-path`:
+
+```bash Command
+sglang serve --model-path /models/SCAIL-2-14B-Diffusers \
+  --lora-path Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank128_bf16.safetensors
+```
+
+With Lightx2v, send `num_inference_steps: 8`, `guidance_scale: 1.0`,
+`sample_shift: 1.0`. The DPO LoRA is published in SAT format; convert it with the
+official `convert_lora.py`, or use the ComfyUI copy
+(`loras/wan2.1_SCAIL_2_DPO_lora_bf16.safetensors` in Comfy-Org/SCAIL-2).
+
+## 6. Parallelism and limits
+
+- Ulysses and ring sequence parallelism shard the whole in-context sequence; TP needs
+  the 40 heads divisible by `--tp-size`. CFG parallel splits the two branches when
+  `guidance_scale > 1`.
+- TeaCache, Spectrum, `video_sparse_attn` and disaggregated serving are not supported.
+- Only the UniPC solver of the reference is implemented (not `dpm++`).
