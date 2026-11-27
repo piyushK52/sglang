@@ -10,6 +10,8 @@ Builder rules:
   frame_per_token (1,4,4,4,4)); each spatial sqrt_area axis uses evenly spaced
   coordinates excluding the right endpoint, then scales them by INTERP;
   audio channel-major blocks pinned to the w-grid extremes.
+- a keyframe block shares the temporal position of its anchor: the clip start,
+  the last pixel frame, or the target latent starting at its frame index.
 """
 
 from __future__ import annotations
@@ -24,7 +26,11 @@ from sglang.multimodal_gen.configs.models.dits.minimax_h3 import (
     MINIMAX_H3_PACKED_SEQUENCE_ALIGNMENT,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
+    minimax_h3_is_keyframe_signature,
+)
+from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.time_request import (
+    minimax_h3_video_latent_index_at,
 )
 
 _INTERP = 32
@@ -56,10 +62,10 @@ def _keyframe_cond_frame_indices(
             "strict fl2va packed layout requires integer keyframe_frame_indices"
         )
     out = list(keyframe_frame_indices)
-    if tuple(out) not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES:
+    if not minimax_h3_is_keyframe_signature(tuple(out)):
         raise ValueError(
-            "strict fl2va packed layout requires keyframe_frame_indices in "
-            f"{MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES!r}, got {out!r}"
+            "strict fl2va packed layout requires keyframe_frame_indices with "
+            f"{MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, got {out!r}"
         )
     return out
 
@@ -113,6 +119,25 @@ def _temporal_position_span(temporal_length: int) -> float:
     for token_index in range(_T_GROUP):
         spans[token_index::_T_GROUP] *= _FRAME_PER_TOKEN[token_index]
     return float(spans.sum())
+
+
+def _keyframe_temporal_position(
+    *, pixel_index: int, frame_count: int, target_t_grid: torch.Tensor
+) -> float:
+    """Temporal position of the keyframe at resolved ``pixel_index``."""
+    latent_t = len(target_t_grid)
+    origin = float(target_t_grid[0])
+    if pixel_index == 0:
+        return origin
+    if pixel_index == frame_count - 1:
+        return origin + _temporal_position_span(latent_t) - _FRAME_RESCALE
+    latent_index = minimax_h3_video_latent_index_at(pixel_index)
+    if latent_index is None or latent_index >= latent_t:
+        raise ValueError(
+            "packed layout requires a mid-video keyframe to start one of the "
+            f"{latent_t} target latents, got resolved frame index {pixel_index}"
+        )
+    return float(target_t_grid[latent_index])
 
 
 def minimax_h3_packed_sequence(
@@ -184,18 +209,9 @@ def minimax_h3_packed_sequence(
             cond_sl.start + block_index * frame_rows,
             cond_sl.start + (block_index + 1) * frame_rows,
         )
-        if pixel_index == 0:
-            cond_t = float(text_len)
-        elif frame_count is not None and pixel_index == frame_count - 1:
-            cond_t = (
-                float(text_len) + _temporal_position_span(latent_t) - _FRAME_RESCALE
-            )
-        else:
-            raise ValueError(
-                "fl2va packed layout only supports first/last keyframe anchors, "
-                f"got resolved frame index {pixel_index}"
-            )
-        g[sl, 0] = cond_t
+        g[sl, 0] = _keyframe_temporal_position(
+            pixel_index=pixel_index, frame_count=frame_count, target_t_grid=t_grid
+        )
         g[sl, 1:] = frame
     audio_t_grid = float(text_len) + torch.arange(audio_t, dtype=torch.float64)
     g[audio_sl, 0] = audio_t_grid.repeat(audio_channel)
@@ -315,7 +331,7 @@ def minimax_h3_packed_sequence_ref2va_blocks(
     - ``{"kind": "video"|"video_audio", "ref_audio_t": T,
        "latent_t": RT, "latent_h": RH, "latent_w": RW}``
 
-    Optional first/last keyframes are packed immediately after text, matching
+    Optional keyframes are packed immediately after text, matching
     Comfy's hybrid Ref2VA + guide layout. Video-bearing blocks pack their audio
     rows immediately before their video rows; both share the same temporal
     origin and advance by the longer of the audio and video spans. Standalone
@@ -503,8 +519,9 @@ def minimax_h3_packed_sequence_ref2va_blocks(
     g[audio_sl.start : audio_sl.start + audio_t, 2] = float(w_grid[0])
     g[audio_sl.start + audio_t : audio_sl.stop, 2] = float(w_grid[-1])
 
+    target_t_grid = _video_t_grid(latent_t, t_cursor)
     video_g = g[video_sl].view(latent_t, frame_rows, 3)
-    video_g[:, :, 0] = _video_t_grid(latent_t, t_cursor)[:, None]
+    video_g[:, :, 0] = target_t_grid[:, None]
     video_g[:, :, 1:] = target_frame[None]
 
     for block_index, pixel_index in enumerate(resolved_keyframe_indices):
@@ -512,16 +529,11 @@ def minimax_h3_packed_sequence_ref2va_blocks(
             keyframe_sl.start + block_index * frame_rows,
             keyframe_sl.start + (block_index + 1) * frame_rows,
         )
-        if pixel_index == 0:
-            cond_t = t_cursor
-        elif frame_count is not None and pixel_index == frame_count - 1:
-            cond_t = t_cursor + _temporal_position_span(latent_t) - _FRAME_RESCALE
-        else:
-            raise ValueError(
-                "hybrid ref2va layout only supports first/last keyframe anchors, "
-                f"got resolved frame index {pixel_index}"
-            )
-        g[sl, 0] = cond_t
+        g[sl, 0] = _keyframe_temporal_position(
+            pixel_index=pixel_index,
+            frame_count=frame_count,
+            target_t_grid=target_t_grid,
+        )
         g[sl, 1:] = target_frame
 
     keyframe_img_pos = _range_for_slice(keyframe_sl)

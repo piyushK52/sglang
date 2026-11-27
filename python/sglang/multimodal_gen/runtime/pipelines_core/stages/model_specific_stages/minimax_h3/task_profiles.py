@@ -20,6 +20,9 @@ import msgspec
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.constants import (
     MINIMAX_H3_DEFAULT_BRANCHES,
 )
+from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.time_request import (
+    minimax_h3_video_latent_index_at,
+)
 
 MINIMAX_H3_CONDITION_ROLE_KEYFRAME = "keyframe"
 MINIMAX_H3_CONDITION_ROLE_REFERENCE = "reference"
@@ -77,15 +80,57 @@ MINIMAX_H3_FINITE_ASPECT_RATIOS = (
     "9:16",
 )
 
-# ``fl2va`` remains the single public task name for all keyframe variants:
-# first-frame-only, last-frame-only, and first+last.  Keep the accepted
-# semantic signatures centralized so validation and every downstream sink can
-# reject middle/reversed/stale payloads consistently.
-MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES: tuple[tuple[int, ...], ...] = (
-    (0,),
-    (-1,),
-    (0, -1),
+# ``fl2va`` remains the single public task name for all keyframe-only variants,
+# and hybrid ``ref2va`` takes the same keyframes. Keep the accepted frame_index
+# rules centralized so validation and every downstream sink reject reversed or
+# stale payloads consistently.
+MINIMAX_H3_MAX_KEYFRAMES = 8
+MINIMAX_H3_KEYFRAME_SIGNATURE_HINT = (
+    f"1 to {MINIMAX_H3_MAX_KEYFRAMES} strictly increasing frame_index values "
+    "(-1 only as the last)"
 )
+
+
+def minimax_h3_is_keyframe_signature(frame_indices: tuple[object, ...]) -> bool:
+    """Whether ordered semantic ``frame_indices`` are admissible."""
+    if not 1 <= len(frame_indices) <= MINIMAX_H3_MAX_KEYFRAMES:
+        return False
+    if any(
+        isinstance(value, bool) or not isinstance(value, int) for value in frame_indices
+    ):
+        return False
+    # -1 names the last frame, so it may only close the sequence.
+    ordered = frame_indices[:-1] if frame_indices[-1] == -1 else frame_indices
+    return all(value >= 0 for value in ordered) and all(
+        earlier < later for earlier, later in zip(ordered, ordered[1:])
+    )
+
+
+def minimax_h3_check_keyframe_position(
+    *, frame_index: int, frame_count: int, path: str
+) -> None:
+    """Require a keyframe on the first frame, the last frame, or a latent start.
+
+    ``frame_count`` is the aligned output length and ``frame_index`` a resolved
+    index inside it; ``path`` names the offending request field.
+    """
+    if frame_index == frame_count - 1:
+        return
+    if minimax_h3_video_latent_index_at(frame_index) is not None:
+        return
+    valid = [
+        candidate
+        for candidate in range(frame_count - 1)
+        if minimax_h3_video_latent_index_at(candidate) is not None
+    ] + [frame_count - 1]
+    before = max(candidate for candidate in valid if candidate < frame_index)
+    after = min(candidate for candidate in valid if candidate > frame_index)
+    raise ValueError(
+        f"{path} must be the first frame, the last frame, or the first frame of a "
+        f"video latent (17n + 0, 1, 5, 9, 13), got {frame_index}; nearest valid "
+        f"frames are {before} and {after}"
+    )
+
 
 # Canonical material-chain names are part of the direct runtime plan.
 # Profile validation keeps only the wire-level allowlist here.
@@ -225,11 +270,11 @@ MINIMAX_H3_TASK_PROFILES: dict[str, MiniMaxH3TaskProfile] = {
         default_audio_flow_shift=3.0,
         required_components=_BASE_COMPONENTS,
         # FL follows the resolved target geometry projected by the caller.
-        # Its first/last keyframes are prepared against that target canvas.
+        # Its keyframes are prepared against that target canvas.
         aspect_ratio_forced_auto=False,
         geometry_source="explicit_target",
         min_condition_count=1,
-        max_condition_count=2,
+        max_condition_count=MINIMAX_H3_MAX_KEYFRAMES,
         auto_geometry_source="first_keyframe",
     ),
     MINIMAX_H3_TASK_REF2VA: MiniMaxH3TaskProfile(
@@ -334,7 +379,8 @@ _validate_profiles()
 __all__ = [
     "MINIMAX_H3_CONDITION_ROLE_KEYFRAME",
     "MINIMAX_H3_FINITE_ASPECT_RATIOS",
-    "MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES",
+    "MINIMAX_H3_KEYFRAME_SIGNATURE_HINT",
+    "MINIMAX_H3_MAX_KEYFRAMES",
     "MINIMAX_H3_CONDITION_ROLE_REFERENCE",
     "MINIMAX_H3_CANONICAL_MATERIAL_CHAINS",
     "MINIMAX_H3_DUAL_VARIANT",
@@ -349,6 +395,8 @@ __all__ = [
     "MINIMAX_H3_TASK_T2VA",
     "MiniMaxH3TaskProfile",
     "canonical_minimax_h3_task",
+    "minimax_h3_check_keyframe_position",
+    "minimax_h3_is_keyframe_signature",
     "minimax_h3_task_profile",
     "partition_for_task",
 ]

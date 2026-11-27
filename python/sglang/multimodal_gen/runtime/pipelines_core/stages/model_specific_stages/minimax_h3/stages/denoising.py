@@ -43,7 +43,8 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     minimax_h3_plan_from_batch,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
+    minimax_h3_is_keyframe_signature,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.validators import (
     StageValidators as V,
@@ -134,7 +135,7 @@ def _image_branch_inputs(
 
 
 def _validate_keyframe_payload(plan: Any, keyframe: Any) -> None:
-    """Reject stale/middle/reordered keyframe payloads at the DiT sink."""
+    """Reject stale, unsupported or reordered keyframe payloads at the DiT sink."""
 
     task = None if plan is None else str(plan.task)
     if task not in {"fl2va", "ref2va"}:
@@ -151,11 +152,10 @@ def _validate_keyframe_payload(plan: Any, keyframe: Any) -> None:
         raise ValueError("encoded keyframe condition rows must be a mapping")
 
     semantic_indices = tuple(keyframe.get("semantic_frame_indices") or ())
-    if semantic_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES:
+    if not minimax_h3_is_keyframe_signature(semantic_indices):
         raise ValueError(
-            "keyframe denoising requires semantic_frame_indices in "
-            f"{MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES!r}, "
-            f"got {semantic_indices!r}"
+            "keyframe denoising requires semantic_frame_indices with "
+            f"{MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, got {semantic_indices!r}"
         )
     frame_count = keyframe.get("frame_count")
     if isinstance(frame_count, bool) or not isinstance(frame_count, int):

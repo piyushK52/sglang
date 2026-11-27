@@ -119,6 +119,32 @@ class TestMiniMaxH3PackedSequence(unittest.TestCase):
                 cond_t = float(built["img_position_ids"][positions, 0].unique().item())
                 self.assertAlmostEqual(cond_t, expected_t, places=12)
 
+    def test_fl2va_mid_keyframes_share_their_target_latent_time(self):
+        text_len = 11
+        keyframe_frame_indices = [0, 35, 94, -1]
+        built = minimax_h3_packed_sequence(
+            text_len=text_len,
+            latent_t=37,
+            latent_h=4,
+            latent_w=4,
+            audio_t=203,
+            include_keyframe_cond=True,
+            keyframe_frame_indices=keyframe_frame_indices,
+            frame_count=124,
+        )
+        frame_rows = 4
+        times = built["img_position_ids"][built["img_pos"], 0].reshape(-1, frame_rows)
+        cond_t = times[: len(keyframe_frame_indices), 0]
+        target_t = times[len(keyframe_frame_indices) :, 0]
+        # Latents 11 and 28 start at pixel frames 35 and 94.
+        for block_index, latent_index, pixel_index in ((1, 11, 35), (2, 28, 94)):
+            self.assertEqual(float(cond_t[block_index]), float(target_t[latent_index]))
+            self.assertAlmostEqual(
+                float(cond_t[block_index]),
+                float(text_len) + pixel_index * (5.0 / 3.0),
+                places=9,
+            )
+
     def test_fl2va_keyframe_index_validation_is_defensive(self):
         common = dict(
             text_len=11,
@@ -129,7 +155,10 @@ class TestMiniMaxH3PackedSequence(unittest.TestCase):
             include_keyframe_cond=True,
             frame_count=124,
         )
-        for frame_indices in (None, [1], [0, 52, -1]):
+        off_latent_start = [2]
+        reversed_order = [35, 0]
+        too_many = [0, 1, 5, 9, 13, 17, 18, 22, 26]
+        for frame_indices in (None, off_latent_start, reversed_order, too_many):
             with (
                 self.subTest(frame_indices=frame_indices),
                 self.assertRaises(ValueError),
@@ -225,3 +254,23 @@ class TestMiniMaxH3PackedSequence(unittest.TestCase):
         )
         target_t0 = built["img_position_ids"][built["img_pos"][frozen_rows], 0]
         self.assertEqual(float(target_t0), target_origin)
+
+    def test_ref2va_mid_keyframe_follows_the_reference_time_offset(self):
+        built = minimax_h3_packed_sequence_ref2va_blocks(
+            text_len=5,
+            latent_t=37,
+            latent_h=4,
+            latent_w=4,
+            audio_t=203,
+            ref_blocks=[{"kind": "image", "latent_h": 4, "latent_w": 4}],
+            keyframe_frame_indices=[35],
+            frame_count=124,
+        )
+
+        frame_rows = 4
+        times = built["img_position_ids"][built["img_pos"], 0].reshape(-1, frame_rows)
+        # Rows are the keyframe, the reference image, then 37 target latents.
+        cond_t, target_t = times[0, 0], times[2:, 0]
+        # Latent 11 starts at pixel frame 35.
+        self.assertEqual(float(cond_t), float(target_t[11]))
+        self.assertAlmostEqual(float(cond_t), 6.0 + 35 * (5.0 / 3.0), places=9)

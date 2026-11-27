@@ -48,14 +48,14 @@ Choose H3 when synchronized audiovisual output or reference-driven generation ma
 | Task | `task` value | Conditioning |
 | --- | --- | --- |
 | Text to video and audio | `t2va` | Text prompt only |
-| First/last frame to video and audio | `fl2va` | First frame, last frame, or both |
-| Reference to video and audio | `ref2va` | Image, video, and audio references, optionally combined with first/last keyframes |
+| First/last frame to video and audio | `fl2va` | First frame, last frame, or both; also [mid-video keyframes](#mid-video-keyframes) |
+| Reference to video and audio | `ref2va` | Image, video, and audio references, optionally combined with [keyframes](#mid-video-keyframes) |
 
 Video-to-video (V2V) is a supported `ref2va` use case, not a fourth task
 value. Run the `Ref2VA` partition and provide a video reference in
-`conditions`. A hybrid `ref2va` request may also include the same ordered
-first/last keyframes accepted by `fl2va`, but it must still contain at least one
-reference condition.
+`conditions`. A hybrid `ref2va` request may also include 1 to 8 ordered
+keyframes, with the same [`frame_index` rules](#mid-video-keyframes) as
+`fl2va`, but it must still contain at least one reference condition.
 
 Use the selected Hub's root model ID: `MiniMaxAI/MiniMax-H3` on Hugging Face
 or `MiniMax/MiniMax-H3` on ModelScope. Select the checkpoint variant with
@@ -624,7 +624,9 @@ The output contract is an MP4 containing H.264 video at 24 fps and one AAC stere
 
 <Tab title="FL2VA">
 
-For `fl2va`, provide one or two image conditions with role `keyframe`. The supported frame-index sets are `[0]`, `[-1]`, and `[0, -1]`.
+For `fl2va`, provide 1 to 8 image conditions with role `keyframe`. First-frame,
+last-frame, and first-and-last conditioning use `frame_index` `[0]`, `[-1]`, and
+`[0, -1]`; see [mid-video keyframes](#mid-video-keyframes) for other positions.
 
 The following request uses one server-local first frame. Use
 `frame_index: -1` for a last frame, or include both entries for first-and-last
@@ -663,6 +665,38 @@ curl -sS -X POST http://127.0.0.1:30010/v1/videos \
     "seed": 2101
   }'
 ```
+
+#### Mid-video keyframes
+
+A keyframe can also sit inside the clip, for example to open each shot of a
+multi-shot video on its own image. The same rules apply to `fl2va` and hybrid
+`ref2va` requests:
+
+- List keyframes in increasing `frame_index` order. `-1` names the last frame and
+  can only be the last entry.
+- A `frame_index` must be the first frame, the last frame, or a frame that starts
+  a video latent: `17n` plus 0, 1, 5, 9, or 13. A request with any other index is
+  rejected, and the error names the nearest valid frames.
+- Frames count at 24 fps within the clip length after `17n + 5` alignment.
+
+A 10-second request with shots starting at frames 0, 60, 107, and 192 uses:
+
+```json
+"conditions": [
+  {"type": "image", "uri": "file:///data/minimax-h3/shot-1.png", "role": "keyframe", "frame_index": 0},
+  {"type": "image", "uri": "file:///data/minimax-h3/shot-2.png", "role": "keyframe", "frame_index": 60},
+  {"type": "image", "uri": "file:///data/minimax-h3/shot-3.png", "role": "keyframe", "frame_index": 107},
+  {"type": "image", "uri": "file:///data/minimax-h3/shot-4.png", "role": "keyframe", "frame_index": 192}
+]
+```
+
+Describe the shots in the prompt. In `fl2va`, refer to the keyframe images as
+`<Picture 1>`, `<Picture 2>`, and so on, in request order. In `ref2va`, keyframes
+have no prompt tag, and `<Picture n>` numbers only the image references. A
+mid-video keyframe guides the model rather than pinning the output frame, so a
+cut can land about a frame away from it. Mid-video keyframes are validated with
+`fl2va` on [Pika H3 Flex](#pika-h3-flex-six-step-adapters) on up to four
+keyframes; `ref2va` and other H3 checkpoints accept them but are untested.
 
 </Tab>
 

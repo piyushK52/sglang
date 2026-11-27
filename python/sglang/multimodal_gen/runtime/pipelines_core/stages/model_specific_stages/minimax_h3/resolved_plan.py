@@ -36,7 +36,8 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     minimax_h3_image_generation_canvas,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
+    minimax_h3_is_keyframe_signature,
     minimax_h3_task_profile,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.time_request import (
@@ -343,13 +344,11 @@ def minimax_h3_resolve_plan(canonical: Mapping[str, Any]) -> MiniMaxH3ResolvedPl
         if (
             not signatures
             or any(signature[:2] != ("image", "keyframe") for signature in signatures)
-            or frame_signature not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES
+            or not minimax_h3_is_keyframe_signature(frame_signature)
         ):
             raise ValueError(
-                f"{profile.task} ResolvedPlan requires one or two ordered "
-                "image/keyframe "
-                "conditions with frame_index [0], [-1], or [0, -1], got "
-                f"{signatures!r}"
+                f"{profile.task} ResolvedPlan requires image/keyframe conditions "
+                f"with {MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, got {signatures!r}"
             )
     shape = (
         _resolve_image_shape(canonical["target"])

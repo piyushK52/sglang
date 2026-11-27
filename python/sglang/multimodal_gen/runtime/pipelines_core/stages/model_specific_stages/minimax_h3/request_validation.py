@@ -29,12 +29,14 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     MINIMAX_H3_CONDITION_ROLE_KEYFRAME,
     MINIMAX_H3_CONDITION_ROLE_REFERENCE,
     MINIMAX_H3_FINITE_ASPECT_RATIOS,
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
     MINIMAX_H3_TASK_FL2VA,
     MINIMAX_H3_TASK_REF2VA,
     MINIMAX_H3_TASK_T2VA,
     MiniMaxH3TaskProfile,
     canonical_minimax_h3_task,
+    minimax_h3_check_keyframe_position,
+    minimax_h3_is_keyframe_signature,
     minimax_h3_task_profile,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.time_request import (
@@ -275,9 +277,9 @@ def _validate_conditions(
 
 
 def _validate_keyframe_conditions(
-    conditions: Sequence[Mapping[str, Any]], *, task: str
+    conditions: Sequence[Mapping[str, Any]], *, task: str, frame_count: int
 ) -> None:
-    """Enforce the shared first/last-frame contract after schema validation."""
+    """Enforce the keyframe ordering and position contract after schema validation."""
 
     keyframes = [
         condition
@@ -285,12 +287,23 @@ def _validate_keyframe_conditions(
         if condition["role"] == MINIMAX_H3_CONDITION_ROLE_KEYFRAME
     ]
     frame_indices = tuple(condition.get("frame_index") for condition in keyframes)
-    if frame_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES:
+    if not minimax_h3_is_keyframe_signature(frame_indices):
         raise ValueError(
-            f"conditions for task {task!r} must include one or two ordered "
-            "image/keyframe entries with frame_index [0], [-1], or [0, -1], "
+            f"conditions for task {task!r} must include image/keyframe entries "
+            f"with {MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, "
             f"got {list(frame_indices)!r}"
         )
+    aligned_frame_count = minimax_h3_align_frame_count(frame_count)
+    for index, condition in enumerate(conditions):
+        if (
+            condition["role"] == MINIMAX_H3_CONDITION_ROLE_KEYFRAME
+            and condition["frame_index"] != -1
+        ):
+            minimax_h3_check_keyframe_position(
+                frame_index=condition["frame_index"],
+                frame_count=aligned_frame_count,
+                path=f"conditions[{index}].frame_index",
+            )
     if task == MINIMAX_H3_TASK_REF2VA and not any(
         condition["role"] == MINIMAX_H3_CONDITION_ROLE_REFERENCE
         for condition in conditions
@@ -359,17 +372,21 @@ def minimax_h3_validate_canonical_request(
         profile=profile,
         frame_count=requested_frame_count,
     )
-    if profile.task == MINIMAX_H3_TASK_FL2VA:
-        _validate_keyframe_conditions(normalized_conditions, task=profile.task)
-    elif profile.task == MINIMAX_H3_TASK_REF2VA and any(
-        condition["role"] == MINIMAX_H3_CONDITION_ROLE_KEYFRAME
-        for condition in normalized_conditions
+    if profile.task == MINIMAX_H3_TASK_FL2VA or (
+        profile.task == MINIMAX_H3_TASK_REF2VA
+        and any(
+            condition["role"] == MINIMAX_H3_CONDITION_ROLE_KEYFRAME
+            for condition in normalized_conditions
+        )
     ):
-        _validate_keyframe_conditions(normalized_conditions, task=profile.task)
+        _validate_keyframe_conditions(
+            normalized_conditions,
+            task=profile.task,
+            frame_count=requested_frame_count,
+        )
     # ref2va accepts ordered reference streams and, for hybrid checkpoints,
-    # one first/last keyframe signature. Type admission is handled by the task
-    # profile; temporal ambiguity is validated later when target duration is
-    # omitted.
+    # ordered keyframes. Type admission is handled by the task profile; temporal
+    # ambiguity is validated later when target duration is omitted.
     if not profile.video_reference_supported:
         for index, cond in enumerate(normalized_conditions):
             if cond["type"] in ("video", "video_audio"):

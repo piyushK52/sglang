@@ -10,6 +10,18 @@ def minimax_h3_align_frame_count(frame_count: int) -> int:
     return current + (5 - current) % 17
 
 
+def minimax_h3_video_latent_index_at(frame_index: int) -> int | None:
+    """Index of the video latent that starts at ``frame_index``, else None.
+
+    Every 17 pixel frames encode to 5 latents covering (1, 4, 4, 4, 4) frames.
+    """
+    group, offset = divmod(int(frame_index), 17)
+    start_offsets = (0, 1, 5, 9, 13)
+    if frame_index < 0 or offset not in start_offsets:
+        return None
+    return group * 5 + start_offsets.index(offset)
+
+
 def minimax_h3_video_latent_t(frame_count: int) -> int:
     if frame_count <= 5:
         return 2

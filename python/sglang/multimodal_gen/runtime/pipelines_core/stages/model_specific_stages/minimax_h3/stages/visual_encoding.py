@@ -19,7 +19,8 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     MINIMAX_H3_REFERENCE_VIDEO_ROWS_EXTRA_KEY,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
+    minimax_h3_is_keyframe_signature,
 )
 from sglang.multimodal_gen.runtime.server_args import (
     ServerArgs,
@@ -186,11 +187,10 @@ class MiniMaxH3VisualEncodingStage(ConditionEncodingStage):
             frame_indices = tuple(
                 material.frame_index for material in keyframe_materials
             )
-            if frame_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES:
+            if not minimax_h3_is_keyframe_signature(frame_indices):
                 raise ValueError(
-                    "MiniMax H3 visual encoding requires an ordered keyframe signature "
-                    f"in {MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES!r}, got "
-                    f"{frame_indices!r}"
+                    "MiniMax H3 visual encoding requires keyframes with "
+                    f"{MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, got {frame_indices!r}"
                 )
         elif keyframe_materials:
             raise ValueError(
@@ -238,12 +238,12 @@ class MiniMaxH3VisualEncodingStage(ConditionEncodingStage):
             keyframe_fit=get_global_server_args().pipeline_config.keyframe_fit,
         )
         prepared_indices = tuple(prepared.get("semantic_frame_indices") or ())
-        if prepared_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES or len(
+        if not minimax_h3_is_keyframe_signature(prepared_indices) or len(
             prepared.get("images") or ()
         ) != len(prepared_indices):
             raise ValueError(
-                "keyframe visual preparation requires one or two ordered images "
-                "with a supported semantic_frame_indices signature"
+                "keyframe visual preparation requires one image per frame index and "
+                f"{MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}"
             )
         encoded = []
         rows_list = []

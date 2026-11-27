@@ -16,7 +16,8 @@ from __future__ import annotations
 from typing import Any
 
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
+    minimax_h3_is_keyframe_signature,
 )
 
 MINIMAX_H3_CANVAS_MULTIPLE = 32
@@ -144,10 +145,10 @@ def _validate_keyframe_materials(plan: Any, keyframes: list[Any]) -> tuple[int, 
             "keyframe target-canvas materials require plan.task='fl2va' or 'ref2va'"
         )
     semantic_indices = tuple(material.frame_index for material in keyframes)
-    if semantic_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES:
+    if not minimax_h3_is_keyframe_signature(semantic_indices):
         raise ValueError(
-            "MiniMax H3 keyframes must use one of the ordered frame_index signatures "
-            f"{MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES!r}, got {semantic_indices!r}"
+            f"MiniMax H3 keyframes require {MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, "
+            f"got {semantic_indices!r}"
         )
     frame_count = plan.shape.get("frame_count")
     if isinstance(frame_count, bool) or not isinstance(frame_count, int):
@@ -169,7 +170,7 @@ def _validate_keyframe_materials(plan: Any, keyframes: list[Any]) -> tuple[int, 
 def minimax_h3_prepared_keyframes(
     batch: Any, plan: Any, *, keyframe_fit: str = "stretch"
 ) -> dict[str, Any]:
-    """Resolve + prepare one or two first/last keyframes once per request.
+    """Resolve + prepare the request's keyframes once per request.
 
     The target canvas is shared across keyframes and must already be frozen by
     the pre-queue probe/resolve hook.
@@ -243,8 +244,8 @@ def minimax_h3_prepared_keyframes(
         with Image.open(image_path) as source_image:
             image = ImageOps.exif_transpose(source_image)
         # A request's first semantic keyframe is its geometry anchor, including
-        # the single-image last-frame-only signature [-1]. Only the second image in the
-        # two-keyframe FL extension is a follower and receives cover-crop.
+        # the single-image last-frame-only signature [-1]. Every later keyframe
+        # is a follower and receives cover-crop.
         if keyframe_fit == "source_crop":
             prepared_image = minimax_h3_center_crop_keyframe_canvas(
                 image,

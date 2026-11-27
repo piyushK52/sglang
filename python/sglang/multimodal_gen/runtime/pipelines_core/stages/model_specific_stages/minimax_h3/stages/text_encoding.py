@@ -14,7 +14,8 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     minimax_h3_replica_ctx,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES,
+    MINIMAX_H3_KEYFRAME_SIGNATURE_HINT,
+    minimax_h3_is_keyframe_signature,
 )
 from sglang.multimodal_gen.runtime.pipelines_core.stages.text_encoding import (
     TextEncodingStage,
@@ -265,11 +266,10 @@ class MiniMaxH3TextEncodingStage(TextEncodingStage):
         ]
         if plan.task in {"fl2va", "ref2va"} and keyframes:
             frame_indices = tuple(material.frame_index for material in keyframes)
-            if frame_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES:
+            if not minimax_h3_is_keyframe_signature(frame_indices):
                 raise ValueError(
-                    "MiniMax H3 text encoding requires an ordered keyframe signature "
-                    f"in {MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES!r}, got "
-                    f"{frame_indices!r}"
+                    "MiniMax H3 text encoding requires keyframes with "
+                    f"{MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, got {frame_indices!r}"
                 )
         elif keyframes:
             raise ValueError(
@@ -444,13 +444,13 @@ class MiniMaxH3TextEncodingStage(TextEncodingStage):
         )
         images = [item["image"] for item in prepared["images"]]
         frame_indices = tuple(prepared.get("semantic_frame_indices") or ())
-        if frame_indices not in MINIMAX_H3_FL2VA_KEYFRAME_SIGNATURES or len(
-            images
-        ) != len(frame_indices):
+        if not minimax_h3_is_keyframe_signature(frame_indices) or len(images) != len(
+            frame_indices
+        ):
             raise ValueError(
-                "fl2va Qwen preparation requires one or two ordered images with "
-                "a supported semantic_frame_indices signature, got "
-                f"{frame_indices!r}"
+                "keyframe Qwen preparation requires one image per frame index and "
+                f"{MINIMAX_H3_KEYFRAME_SIGNATURE_HINT}, got "
+                f"{frame_indices!r} with {len(images)} images"
             )
         processor = self.processor
         vision = processor.image_processor(images=images, return_tensors="pt")

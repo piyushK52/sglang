@@ -98,6 +98,22 @@ TARGET = {
             ["image.target_canvas", "image.target_canvas"],
         ),
         (
+            "fl2va",
+            [
+                {
+                    "type": "image",
+                    "uri": f"file:///{frame_index}.png",
+                    "role": "keyframe",
+                    "frame_index": frame_index,
+                }
+                for frame_index in (0, 35, 94, -1)
+            ],
+            "fl2va",
+            [0, 1, 2, 3],
+            [],
+            ["image.target_canvas"] * 4,
+        ),
+        (
             "ref2va",
             [
                 {
@@ -143,14 +159,24 @@ TARGET = {
                 },
                 {
                     "type": "image",
+                    "uri": "file:///mid.png",
+                    "role": "keyframe",
+                    "frame_index": 35,
+                },
+                {
+                    "type": "image",
                     "uri": "file:///subject.png",
                     "role": "reference",
                 },
             ],
             "ref2va",
-            [0, 1],
+            [0, 1, 2],
             [],
-            ["image.target_canvas", "image.reference_preserve"],
+            [
+                "image.target_canvas",
+                "image.target_canvas",
+                "image.reference_preserve",
+            ],
         ),
     ],
 )
@@ -182,6 +208,24 @@ def test_public_tasks_resolve_to_exact_partition_and_encoder_plan(
             assert plan.materials[index].start_time_seconds == 12.5
     assert plan.shape["frame_count"] == 124
     assert plan.shape["video_latent_t"] == 37
+
+
+@pytest.mark.parametrize("task", ["fl2va", "ref2va"])
+def test_keyframes_off_a_latent_start_are_rejected(task):
+    keyframe = {
+        "type": "image",
+        "uri": "file:///mid.png",
+        "role": "keyframe",
+        "frame_index": 36,
+    }
+    reference = {"type": "image", "uri": "file:///subject.png", "role": "reference"}
+    with pytest.raises(ValueError, match="nearest valid frames are 35 and 39"):
+        minimax_h3_validate_canonical_request(
+            task=task,
+            prompt="contract",
+            conditions=[keyframe] if task == "fl2va" else [keyframe, reference],
+            target=TARGET,
+        )
 
 
 def test_ref2va_rejects_keyframes_without_a_reference():

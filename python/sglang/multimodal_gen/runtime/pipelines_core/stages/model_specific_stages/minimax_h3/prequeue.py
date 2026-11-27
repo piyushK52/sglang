@@ -32,6 +32,9 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     minimax_h3_plan_from_batch,
     minimax_h3_resolve_spatial_shape,
 )
+from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
+    MINIMAX_H3_MAX_KEYFRAMES,
+)
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.time_request import (
     minimax_h3_align_frame_count,
     minimax_h3_audio_latent_t,
@@ -87,19 +90,20 @@ def _resolve_deferred_spatial_shape(
             for material in plan.materials
             if material.material_chain == "image.target_canvas"
         ]
-        if len(candidates) not in {1, 2}:
+        if not 1 <= len(candidates) <= MINIMAX_H3_MAX_KEYFRAMES:
             raise ValueError(
-                f"fl2va requires one or two keyframe materials, got {len(candidates)}"
+                f"fl2va requires 1 to {MINIMAX_H3_MAX_KEYFRAMES} keyframe "
+                f"materials, got {len(candidates)}"
             )
         for material in candidates:
-            if material.frame_index not in {0, -1}:
+            if material.frame_index is None or material.frame_index < -1:
                 raise ValueError(
-                    "fl2va deferred geometry requires semantic frame_index 0 or "
-                    f"-1, got {material.frame_index!r} for "
+                    "fl2va deferred geometry requires semantic frame_index -1 or "
+                    f"non-negative, got {material.frame_index!r} for "
                     f"conditions[{material.condition_index}]"
                 )
         # Select by semantic time, not request/material iteration order. The
-        # last-frame sentinel sorts after the first-frame anchor.
+        # last-frame sentinel sorts after every other keyframe.
         source = min(
             candidates,
             key=lambda material: (
@@ -109,7 +113,7 @@ def _resolve_deferred_spatial_shape(
             ),
         )
         geometry_source = (
-            "first_keyframe" if source.frame_index == 0 else "last_keyframe"
+            "last_keyframe" if source.frame_index == -1 else "first_keyframe"
         )
     else:
         raise ValueError(f"task {plan.task!r} has unsupported deferred target geometry")

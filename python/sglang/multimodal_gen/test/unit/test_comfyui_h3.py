@@ -463,10 +463,7 @@ def test_gap_keyframe_audio_latent_cond_audio():
     assert sgld_audio_cond == comfy_cond_audio
 
 
-@pytest.mark.xfail(
-    strict=True, reason="D3: SGLD only accepts keyframe signatures (0,), (-1,), (0, -1)"
-)
-def test_gap_arbitrary_frame_idx():
+def test_fl2va_mid_keyframe_matches_comfyui():
     packed = minimax_h3_packed_sequence(
         text_len=4,
         latent_t=37,
