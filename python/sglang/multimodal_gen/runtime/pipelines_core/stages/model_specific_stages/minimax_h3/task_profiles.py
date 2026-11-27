@@ -84,16 +84,14 @@ MINIMAX_H3_FINITE_ASPECT_RATIOS = (
 # and hybrid ``ref2va`` takes the same keyframes. Keep the accepted frame_index
 # rules centralized so validation and every downstream sink reject reversed or
 # stale payloads consistently.
-MINIMAX_H3_MAX_KEYFRAMES = 8
 MINIMAX_H3_KEYFRAME_SIGNATURE_HINT = (
-    f"1 to {MINIMAX_H3_MAX_KEYFRAMES} strictly increasing frame_index values "
-    "(-1 only as the last)"
+    "one or more strictly increasing frame_index values (-1 only as the last)"
 )
 
 
 def minimax_h3_is_keyframe_signature(frame_indices: tuple[object, ...]) -> bool:
     """Whether ordered semantic ``frame_indices`` are admissible."""
-    if not 1 <= len(frame_indices) <= MINIMAX_H3_MAX_KEYFRAMES:
+    if not frame_indices:
         return False
     if any(
         isinstance(value, bool) or not isinstance(value, int) for value in frame_indices
@@ -274,7 +272,6 @@ MINIMAX_H3_TASK_PROFILES: dict[str, MiniMaxH3TaskProfile] = {
         aspect_ratio_forced_auto=False,
         geometry_source="explicit_target",
         min_condition_count=1,
-        max_condition_count=MINIMAX_H3_MAX_KEYFRAMES,
         auto_geometry_source="first_keyframe",
     ),
     MINIMAX_H3_TASK_REF2VA: MiniMaxH3TaskProfile(
@@ -380,7 +377,6 @@ __all__ = [
     "MINIMAX_H3_CONDITION_ROLE_KEYFRAME",
     "MINIMAX_H3_FINITE_ASPECT_RATIOS",
     "MINIMAX_H3_KEYFRAME_SIGNATURE_HINT",
-    "MINIMAX_H3_MAX_KEYFRAMES",
     "MINIMAX_H3_CONDITION_ROLE_REFERENCE",
     "MINIMAX_H3_CANONICAL_MATERIAL_CHAINS",
     "MINIMAX_H3_DUAL_VARIANT",

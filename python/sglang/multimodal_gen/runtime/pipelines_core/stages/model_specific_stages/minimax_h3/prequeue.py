@@ -32,9 +32,6 @@ from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.m
     minimax_h3_plan_from_batch,
     minimax_h3_resolve_spatial_shape,
 )
-from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.task_profiles import (
-    MINIMAX_H3_MAX_KEYFRAMES,
-)
 from sglang.multimodal_gen.runtime.pipelines_core.stages.model_specific_stages.minimax_h3.time_request import (
     minimax_h3_align_frame_count,
     minimax_h3_audio_latent_t,
@@ -90,11 +87,8 @@ def _resolve_deferred_spatial_shape(
             for material in plan.materials
             if material.material_chain == "image.target_canvas"
         ]
-        if not 1 <= len(candidates) <= MINIMAX_H3_MAX_KEYFRAMES:
-            raise ValueError(
-                f"fl2va requires 1 to {MINIMAX_H3_MAX_KEYFRAMES} keyframe "
-                f"materials, got {len(candidates)}"
-            )
+        if not candidates:
+            raise ValueError("fl2va requires at least one keyframe material")
         for material in candidates:
             if material.frame_index is None or material.frame_index < -1:
                 raise ValueError(

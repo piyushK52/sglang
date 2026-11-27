@@ -157,8 +157,7 @@ class TestMiniMaxH3PackedSequence(unittest.TestCase):
         )
         off_latent_start = [2]
         reversed_order = [35, 0]
-        too_many = [0, 1, 5, 9, 13, 17, 18, 22, 26]
-        for frame_indices in (None, off_latent_start, reversed_order, too_many):
+        for frame_indices in (None, off_latent_start, reversed_order):
             with (
                 self.subTest(frame_indices=frame_indices),
                 self.assertRaises(ValueError),

@@ -53,7 +53,7 @@ Choose H3 when synchronized audiovisual output or reference-driven generation ma
 
 Video-to-video (V2V) is a supported `ref2va` use case, not a fourth task
 value. Run the `Ref2VA` partition and provide a video reference in
-`conditions`. A hybrid `ref2va` request may also include 1 to 8 ordered
+`conditions`. A hybrid `ref2va` request may also include one or more ordered
 keyframes, with the same [`frame_index` rules](#mid-video-keyframes) as
 `fl2va`, but it must still contain at least one reference condition.
 
@@ -624,9 +624,10 @@ The output contract is an MP4 containing H.264 video at 24 fps and one AAC stere
 
 <Tab title="FL2VA">
 
-For `fl2va`, provide 1 to 8 image conditions with role `keyframe`. First-frame,
-last-frame, and first-and-last conditioning use `frame_index` `[0]`, `[-1]`, and
-`[0, -1]`; see [mid-video keyframes](#mid-video-keyframes) for other positions.
+For `fl2va`, provide one or more image conditions with role `keyframe`.
+First-frame, last-frame, and first-and-last conditioning use `frame_index` `[0]`,
+`[-1]`, and `[0, -1]`; see [mid-video keyframes](#mid-video-keyframes) for other
+positions.
 
 The following request uses one server-local first frame. Use
 `frame_index: -1` for a last frame, or include both entries for first-and-last
